@@ -7,14 +7,16 @@ type Interpreter struct {
 	IP     int
 	Stack  *runtime.Stack
 	Consts []float64
+	Frame  *runtime.Frame
 }
 
-func NewInterpreter(bc []uint8, consts []float64) *Interpreter {
+func NewInterpreter(bc []uint8, consts []float64, frameSize int) *Interpreter {
 	return &Interpreter{
 		BC:     bc,
 		IP:     0,
 		Stack:  runtime.NewStack(),
 		Consts: consts,
+		Frame:  runtime.NewFrame(frameSize),
 	}
 }
 
@@ -44,6 +46,22 @@ func (vm *Interpreter) Run() interface{} {
 			b := vm.Stack.Pop().(float64)
 			a := vm.Stack.Pop().(float64)
 			vm.Stack.Push(a - b)
+
+		case OP_DIV:
+			b := vm.Stack.Pop().(float64)
+			a := vm.Stack.Pop().(float64)
+			vm.Stack.Push(a / b)
+
+		case OP_LOAD_VAR:
+			idx := vm.BC[vm.IP]
+			vm.IP++
+			vm.Stack.Push(vm.Frame.Load(int(idx)))
+
+		case OP_STORE_VAR:
+			idx := vm.BC[vm.IP]
+			vm.IP++
+			val := vm.Stack.Pop()
+			vm.Frame.Store(int(idx), val)
 
 		case OP_RETURN:
 			return vm.Stack.Pop()
