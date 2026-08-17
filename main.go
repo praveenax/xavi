@@ -2,12 +2,11 @@ package main
 
 import (
 	"fmt"
-	"os"
 
+	"os"
 	"xavi/compiler/bytecode"
-	"xavi/compiler/lexer"
-	"xavi/compiler/parser"
 	"xavi/vm/exec"
+	"xavi/vm/loader"
 )
 
 func main() {
@@ -18,38 +17,19 @@ func main() {
 
 	fileName := os.Args[1]
 
-	data, err := os.ReadFile(fileName)
+	// 1. Load the entry file and any imported source files.
+	program, err := loader.LoadProgram(fileName)
 	if err != nil {
-		fmt.Println("Error reading Xavi file:", err)
+		fmt.Println("Error loading Xavi file:", err)
 		os.Exit(1)
 	}
-
-	src := string(data)
-
-	// 1. Lexical analysis
-	lex := lexer.New(src)
-
-	var tokens []lexer.Token
-
-	for {
-		token := lex.Next()
-		tokens = append(tokens, token)
-
-		if token.Type == lexer.EOF {
-			break
-		}
-	}
-
-	// 2. Parse tokens into AST
-	p := parser.New(tokens)
-	program := p.ParseProgram()
 
 	if len(program.Functions) == 0 {
 		fmt.Println("Error: no function found")
 		os.Exit(1)
 	}
 
-	// 3. Generate Xavi bytecode
+	// 2. Generate Xavi bytecode
 	generator := bytecode.NewGenerator()
 	compiledProgram, err := generator.GenerateProgram(program)
 	if err != nil {
@@ -57,7 +37,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 4. Execute bytecode using Xavi VM.
+	// 3. Execute bytecode using Xavi VM.
 	vm := exec.NewInterpreter(compiledProgram)
 
 	result := vm.Run("main")

@@ -15,8 +15,17 @@ type Expr interface {
 }
 
 type Program struct {
+	Imports   []*Import
 	Functions []*Function
 }
+
+type Import struct {
+	Name     string
+	Path     string
+	position int
+}
+
+func (i *Import) Pos() int { return i.position }
 
 type Function struct {
 	Name       string

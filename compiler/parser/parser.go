@@ -18,6 +18,7 @@ func New(tokens []lexer.Token) *Parser {
 
 func (p *Parser) ParseProgram() *ast.Program {
 	program := &ast.Program{
+		Imports:   make([]*ast.Import, 0),
 		Functions: make([]*ast.Function, 0),
 	}
 
@@ -27,11 +28,37 @@ func (p *Parser) ParseProgram() *ast.Program {
 			break
 		}
 
-		program.Functions = append(program.Functions, p.ParseFunction())
+		switch p.current().Type {
+		case lexer.IMPORT:
+			program.Imports = append(program.Imports, p.parseImport())
+		case lexer.FN:
+			program.Functions = append(program.Functions, p.ParseFunction())
+		default:
+			panic(fmt.Sprintf(
+				"unsupported top-level statement %q at line %d, col %d",
+				p.current().Literal,
+				p.current().Line,
+				p.current().Col,
+			))
+		}
 		p.skipNewlines()
 	}
 
 	return program
+}
+
+func (p *Parser) parseImport() *ast.Import {
+	p.expect(lexer.IMPORT)
+	name := ""
+	if p.current().Type == lexer.IDENT {
+		name = p.advance().Literal
+		p.expect(lexer.LT)
+	}
+	path := p.expect(lexer.STRING)
+	return &ast.Import{
+		Name: name,
+		Path: path.Literal,
+	}
 }
 
 func (p *Parser) ParseFunction() *ast.Function {

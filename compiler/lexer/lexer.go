@@ -10,6 +10,7 @@ type TokenType string
 
 const (
 	FN     TokenType = "FN"
+	IMPORT TokenType = "IMPORT"
 	RETURN TokenType = "RETURN"
 	LET    TokenType = "LET"
 	RECORD TokenType = "RECORD"
@@ -18,6 +19,7 @@ const (
 	EVENT  TokenType = "EVENT"
 
 	COLON  TokenType = ":"
+	LT     TokenType = "<"
 	ARROW  TokenType = "->"
 	LPAREN TokenType = "("
 	RPAREN TokenType = ")"
@@ -153,6 +155,8 @@ func tokenize(src string) []Token {
 			switch ch {
 			case ':':
 				tokens = append(tokens, Token{Type: COLON, Literal: ":", Line: lineNumber, Col: col})
+			case '<':
+				tokens = append(tokens, Token{Type: LT, Literal: "<", Line: lineNumber, Col: col})
 			case '(':
 				tokens = append(tokens, Token{Type: LPAREN, Literal: "(", Line: lineNumber, Col: col})
 			case ')':
@@ -229,6 +233,8 @@ func keywordType(literal string) TokenType {
 	switch literal {
 	case "fn":
 		return FN
+	case "import":
+		return IMPORT
 	case "return":
 		return RETURN
 	case "let":

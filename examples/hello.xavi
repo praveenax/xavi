@@ -1,7 +1,4 @@
-fn sum(x,y):
-    return x + y
-
-
+import sum < "./sum.xavi"
 
 fn main():
     let x = 10
