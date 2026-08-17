@@ -2,29 +2,71 @@ package main
 
 import (
 	"fmt"
+	"os"
+
+	"xavi/compiler/bytecode"
+	"xavi/compiler/lexer"
+	"xavi/compiler/parser"
 	"xavi/vm/exec"
 )
 
 func main() {
-	// Bytecode for:
-	// return 10 + 20
-	bytecode := []uint8{
-		exec.OP_LOAD_CONST, 0, // push const[0] = 10
-		exec.OP_STORE_VAR, 0,
-
-		exec.OP_LOAD_CONST, 1, // push const[1] = 20
-		exec.OP_STORE_VAR, 1,
-
-		exec.OP_LOAD_VAR, 0,
-		exec.OP_LOAD_VAR, 1,
-		// add
-		exec.OP_ADD,
-		exec.OP_RETURN, // return result
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: go run . <file.xavi>")
+		os.Exit(1)
 	}
 
-	constPool := []float64{10, 20}
+	fileName := os.Args[1]
 
-	vm := exec.NewInterpreter(bytecode, constPool, 2)
+	data, err := os.ReadFile(fileName)
+	if err != nil {
+		fmt.Println("Error reading Xavi file:", err)
+		os.Exit(1)
+	}
+
+	src := string(data)
+
+	// 1. Lexical analysis
+	lex := lexer.New(src)
+
+	var tokens []lexer.Token
+
+	for {
+		token := lex.Next()
+		tokens = append(tokens, token)
+
+		if token.Type == lexer.EOF {
+			break
+		}
+	}
+
+	// 2. Parse tokens into AST
+	p := parser.New(tokens)
+	program := p.ParseProgram()
+
+	if len(program.Functions) == 0 {
+		fmt.Println("Error: no function found")
+		os.Exit(1)
+	}
+
+	// For now, execute the first function.
+	fn := program.Functions[0]
+
+	// 3. Generate Xavi bytecode
+	generator := bytecode.NewGenerator()
+
+	bc, constants := generator.Generate(fn)
+
+	// 4. Allocate enough local variable slots.
+	frameSize := len(generator.Vars)
+
+	// 5. Execute bytecode using Xavi VM.
+	vm := exec.NewInterpreter(
+		bc,
+		constants,
+		frameSize,
+	)
+
 	result := vm.Run()
 
 	fmt.Println("Result:", result)
