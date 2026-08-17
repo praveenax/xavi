@@ -1,6 +1,7 @@
 import sum < "./sum.xavi"
+import mult < "./operation/mult.xavi"
 
 fn main():
-    let x = 10
-    let y = sum(14,6)
+    let x = mult(5,2)
+    let y = sum(14,mult(2,3))
     return sum(x,y)
