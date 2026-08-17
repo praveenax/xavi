@@ -16,14 +16,14 @@ type CompiledFunction struct {
 	Name      string
 	Params    []string
 	Bytecode  []uint8
-	Consts    []float64
+	Consts    []interface{}
 	FrameSize int
 }
 
 // Generator converts Xavi AST nodes into Xavi VM bytecode.
 type Generator struct {
 	Vars          map[string]int
-	Consts        []float64
+	Consts        []interface{}
 	Bytecode      []uint8
 	FunctionIndex map[string]uint8
 }
@@ -32,15 +32,15 @@ type Generator struct {
 func NewGenerator() *Generator {
 	return &Generator{
 		Vars:          make(map[string]int),
-		Consts:        make([]float64, 0),
+		Consts:        make([]interface{}, 0),
 		Bytecode:      make([]uint8, 0),
 		FunctionIndex: make(map[string]uint8),
 	}
 }
 
-// addConst adds a numeric value to the constant pool
+// addConst adds a value to the constant pool
 // and returns its index.
-func (g *Generator) addConst(value float64) uint8 {
+func (g *Generator) addConst(value interface{}) uint8 {
 	for i, existing := range g.Consts {
 		if existing == value {
 			return uint8(i)
@@ -77,7 +77,7 @@ func (g *Generator) GenerateProgram(program *ast.Program) (*CompiledProgram, err
 // generateFunction converts a function AST into bytecode.
 func (g *Generator) generateFunction(fn *ast.Function) *CompiledFunction {
 	g.Vars = make(map[string]int)
-	g.Consts = make([]float64, 0)
+	g.Consts = make([]interface{}, 0)
 	g.Bytecode = make([]uint8, 0)
 
 	params := make([]string, 0, len(fn.Params))
@@ -103,6 +103,10 @@ func (g *Generator) generateFunction(fn *ast.Function) *CompiledFunction {
 			g.emitExpr(stmt.Value)
 			g.Bytecode = append(g.Bytecode, opcode.RETURN)
 
+		case *ast.ExprStmt:
+			g.emitExpr(stmt.Value)
+			g.Bytecode = append(g.Bytecode, opcode.POP)
+
 		default:
 			panic(fmt.Sprintf("unsupported statement type %T", stmt))
 		}
@@ -112,7 +116,7 @@ func (g *Generator) generateFunction(fn *ast.Function) *CompiledFunction {
 		Name:      fn.Name,
 		Params:    params,
 		Bytecode:  append([]uint8(nil), g.Bytecode...),
-		Consts:    append([]float64(nil), g.Consts...),
+		Consts:    append([]interface{}(nil), g.Consts...),
 		FrameSize: len(g.Vars),
 	}
 }
@@ -121,6 +125,10 @@ func (g *Generator) generateFunction(fn *ast.Function) *CompiledFunction {
 func (g *Generator) emitExpr(expression ast.Expr) {
 	switch expr := expression.(type) {
 	case *ast.NumberLiteral:
+		constIndex := g.addConst(expr.Value)
+		g.Bytecode = append(g.Bytecode, opcode.LOAD_CONST, constIndex)
+
+	case *ast.StringLiteral:
 		constIndex := g.addConst(expr.Value)
 		g.Bytecode = append(g.Bytecode, opcode.LOAD_CONST, constIndex)
 
@@ -150,13 +158,18 @@ func (g *Generator) emitExpr(expression ast.Expr) {
 		}
 
 	case *ast.CallExpr:
+		for _, arg := range expr.Args {
+			g.emitExpr(arg)
+		}
+
+		if builtinIndex, ok := opcode.BuiltinIndex(expr.Callee); ok {
+			g.Bytecode = append(g.Bytecode, opcode.CALL_BUILTIN, builtinIndex, uint8(len(expr.Args)))
+			return
+		}
+
 		functionIndex, exists := g.FunctionIndex[expr.Callee]
 		if !exists {
 			panic(fmt.Sprintf("undefined function: %s", expr.Callee))
-		}
-
-		for _, arg := range expr.Args {
-			g.emitExpr(arg)
 		}
 
 		g.Bytecode = append(g.Bytecode, opcode.CALL, functionIndex, uint8(len(expr.Args)))

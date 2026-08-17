@@ -149,12 +149,9 @@ func (p *Parser) parseStatement() ast.Stmt {
 			Value: p.parseExpr(),
 		}
 	default:
-		panic(fmt.Sprintf(
-			"unsupported statement %q at line %d, col %d",
-			p.current().Literal,
-			p.current().Line,
-			p.current().Col,
-		))
+		return &ast.ExprStmt{
+			Value: p.parseExpr(),
+		}
 	}
 }
 
@@ -252,6 +249,9 @@ func (p *Parser) parsePrimary() ast.Expr {
 	case lexer.NUMBER:
 		p.advance()
 		return &ast.NumberLiteral{Value: lexer.ParseNumber(token)}
+	case lexer.STRING:
+		p.advance()
+		return &ast.StringLiteral{Value: token.Literal}
 	case lexer.LPAREN:
 		p.advance()
 		expr := p.parseExpr()

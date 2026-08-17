@@ -59,6 +59,14 @@ type ReturnStmt struct {
 func (s *ReturnStmt) Pos() int  { return s.position }
 func (s *ReturnStmt) stmtNode() {}
 
+type ExprStmt struct {
+	Value    Expr
+	position int
+}
+
+func (s *ExprStmt) Pos() int  { return s.position }
+func (s *ExprStmt) stmtNode() {}
+
 type Ident struct {
 	Name     string
 	position int
@@ -74,6 +82,14 @@ type NumberLiteral struct {
 
 func (e *NumberLiteral) Pos() int  { return e.position }
 func (e *NumberLiteral) exprNode() {}
+
+type StringLiteral struct {
+	Value    string
+	position int
+}
+
+func (e *StringLiteral) Pos() int  { return e.position }
+func (e *StringLiteral) exprNode() {}
 
 type BinaryExpr struct {
 	Op       string

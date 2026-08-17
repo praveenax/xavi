@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"xavi/compiler/bytecode"
+	"xavi/vm/builtin"
 	"xavi/vm/opcode"
 	"xavi/vm/runtime"
 )
@@ -88,6 +89,22 @@ func (vm *Interpreter) runFunction(fn *bytecode.CompiledFunction, args []interfa
 
 			result := vm.runFunction(vm.Program.Functions[functionIndex], callArgs)
 			stack.Push(result)
+
+		case opcode.CALL_BUILTIN:
+			builtinIndex := fn.Bytecode[ip]
+			ip++
+			argCount := int(fn.Bytecode[ip])
+			ip++
+
+			callArgs := make([]interface{}, argCount)
+			for i := argCount - 1; i >= 0; i-- {
+				callArgs[i] = stack.Pop()
+			}
+
+			stack.Push(builtin.Call(builtinIndex, callArgs))
+
+		case opcode.POP:
+			stack.Pop()
 
 		case opcode.RETURN:
 			return stack.Pop()
