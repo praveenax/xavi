@@ -1,27 +1,77 @@
 package ast
 
 type Node interface {
-    Pos() int
+	Pos() int
+}
+
+type Stmt interface {
+	Node
+	stmtNode()
+}
+
+type Expr interface {
+	Node
+	exprNode()
+}
+
+type Program struct {
+	Functions []*Function
 }
 
 type Function struct {
-    Name       string
-    Params     []Param
-    ReturnType string
-    Body       []Node
+	Name       string
+	Params     []Param
+	ReturnType string
+	Body       []Stmt
+	position   int
 }
+
+func (f *Function) Pos() int { return f.position }
 
 type Param struct {
-    Name string
-    Type string
+	Name string
+	Type string
 }
 
-type Return struct {
-    Value Node
+type LetStmt struct {
+	Name     string
+	Value    Expr
+	position int
 }
 
-type BinaryOp struct {
-    Op    string
-    Left  Node
-    Right Node
+func (s *LetStmt) Pos() int  { return s.position }
+func (s *LetStmt) stmtNode() {}
+
+type ReturnStmt struct {
+	Value    Expr
+	position int
 }
+
+func (s *ReturnStmt) Pos() int  { return s.position }
+func (s *ReturnStmt) stmtNode() {}
+
+type Ident struct {
+	Name     string
+	position int
+}
+
+func (e *Ident) Pos() int  { return e.position }
+func (e *Ident) exprNode() {}
+
+type NumberLiteral struct {
+	Value    float64
+	position int
+}
+
+func (e *NumberLiteral) Pos() int  { return e.position }
+func (e *NumberLiteral) exprNode() {}
+
+type BinaryExpr struct {
+	Op       string
+	Left     Expr
+	Right    Expr
+	position int
+}
+
+func (e *BinaryExpr) Pos() int  { return e.position }
+func (e *BinaryExpr) exprNode() {}

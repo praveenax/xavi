@@ -1,38 +1,244 @@
 package parser
 
 import (
-    "xavi/compiler/lexer"
-    "xavi/compiler/ast"
+	"fmt"
+
+	"xavi/compiler/ast"
+	"xavi/compiler/lexer"
 )
 
 type Parser struct {
-    tokens []lexer.Token
-    pos    int
+	tokens []lexer.Token
+	pos    int
 }
 
 func New(tokens []lexer.Token) *Parser {
-    return &Parser{tokens: tokens}
+	return &Parser{tokens: tokens}
+}
+
+func (p *Parser) ParseProgram() *ast.Program {
+	program := &ast.Program{
+		Functions: make([]*ast.Function, 0),
+	}
+
+	for p.current().Type != lexer.EOF {
+		p.skipNewlines()
+		if p.current().Type == lexer.EOF {
+			break
+		}
+
+		program.Functions = append(program.Functions, p.ParseFunction())
+		p.skipNewlines()
+	}
+
+	return program
 }
 
 func (p *Parser) ParseFunction() *ast.Function {
-    p.expect(lexer.FN)
+	p.expect(lexer.FN)
+	name := p.expect(lexer.IDENT).Literal
+	p.expect(lexer.LPAREN)
+	params := p.parseParams()
+	p.expect(lexer.RPAREN)
 
-    name := p.expect(lexer.IDENT).Literal
-    p.expect(lexer.LPAREN)
+	returnType := ""
+	if p.match(lexer.ARROW) {
+		returnType = p.expect(lexer.IDENT).Literal
+	}
 
-    params := p.parseParams()
+	p.expect(lexer.COLON)
+	body := p.parseBlock()
 
-    p.expect(lexer.RPAREN)
-    p.expect(lexer.ARROW)
+	return &ast.Function{
+		Name:       name,
+		Params:     params,
+		ReturnType: returnType,
+		Body:       body,
+	}
+}
 
-    returnType := p.expect(lexer.IDENT).Literal
+func (p *Parser) parseParams() []ast.Param {
+	params := make([]ast.Param, 0)
 
-    body := p.parseBlock()
+	if p.current().Type == lexer.RPAREN {
+		return params
+	}
 
-    return &ast.Function{
-        Name:       name,
-        Params:     params,
-        ReturnType: returnType,
-        Body:       body,
-    }
+	for {
+		name := p.expect(lexer.IDENT).Literal
+		paramType := ""
+		if p.match(lexer.COLON) {
+			paramType = p.expect(lexer.IDENT).Literal
+		}
+
+		params = append(params, ast.Param{
+			Name: name,
+			Type: paramType,
+		})
+
+		if !p.match(lexer.COMMA) {
+			break
+		}
+	}
+
+	return params
+}
+
+func (p *Parser) parseBlock() []ast.Stmt {
+	p.expect(lexer.NEWLINE)
+	p.expect(lexer.INDENT)
+
+	body := make([]ast.Stmt, 0)
+
+	for {
+		p.skipNewlines()
+		if p.current().Type == lexer.DEDENT || p.current().Type == lexer.EOF {
+			break
+		}
+
+		body = append(body, p.parseStatement())
+		if p.current().Type == lexer.NEWLINE {
+			p.advance()
+		}
+	}
+
+	p.expect(lexer.DEDENT)
+	return body
+}
+
+func (p *Parser) parseStatement() ast.Stmt {
+	switch p.current().Type {
+	case lexer.LET:
+		p.advance()
+		name := p.expect(lexer.IDENT).Literal
+		p.expect(lexer.ASSIGN)
+		return &ast.LetStmt{
+			Name:  name,
+			Value: p.parseExpr(),
+		}
+	case lexer.RETURN:
+		p.advance()
+		return &ast.ReturnStmt{
+			Value: p.parseExpr(),
+		}
+	default:
+		panic(fmt.Sprintf(
+			"unsupported statement %q at line %d, col %d",
+			p.current().Literal,
+			p.current().Line,
+			p.current().Col,
+		))
+	}
+}
+
+func (p *Parser) parseExpr() ast.Expr {
+	return p.parseAddSub()
+}
+
+func (p *Parser) parseAddSub() ast.Expr {
+	left := p.parseMulDiv()
+
+	for {
+		op := p.current().Type
+		if op != lexer.PLUS && op != lexer.MINUS {
+			return left
+		}
+
+		operator := p.advance().Literal
+		right := p.parseMulDiv()
+		left = &ast.BinaryExpr{
+			Op:    operator,
+			Left:  left,
+			Right: right,
+		}
+	}
+}
+
+func (p *Parser) parseMulDiv() ast.Expr {
+	left := p.parsePrimary()
+
+	for {
+		op := p.current().Type
+		if op != lexer.STAR && op != lexer.SLASH {
+			return left
+		}
+
+		operator := p.advance().Literal
+		right := p.parsePrimary()
+		left = &ast.BinaryExpr{
+			Op:    operator,
+			Left:  left,
+			Right: right,
+		}
+	}
+}
+
+func (p *Parser) parsePrimary() ast.Expr {
+	token := p.current()
+
+	switch token.Type {
+	case lexer.IDENT:
+		p.advance()
+		return &ast.Ident{Name: token.Literal}
+	case lexer.NUMBER:
+		p.advance()
+		return &ast.NumberLiteral{Value: lexer.ParseNumber(token)}
+	case lexer.LPAREN:
+		p.advance()
+		expr := p.parseExpr()
+		p.expect(lexer.RPAREN)
+		return expr
+	default:
+		panic(fmt.Sprintf(
+			"unsupported expression %q at line %d, col %d",
+			token.Literal,
+			token.Line,
+			token.Col,
+		))
+	}
+}
+
+func (p *Parser) expect(expected lexer.TokenType) lexer.Token {
+	token := p.current()
+	if token.Type != expected {
+		panic(fmt.Sprintf(
+			"expected %s, got %s at line %d, col %d",
+			expected,
+			token.Type,
+			token.Line,
+			token.Col,
+		))
+	}
+
+	p.pos++
+	return token
+}
+
+func (p *Parser) match(expected lexer.TokenType) bool {
+	if p.current().Type != expected {
+		return false
+	}
+
+	p.pos++
+	return true
+}
+
+func (p *Parser) skipNewlines() {
+	for p.current().Type == lexer.NEWLINE {
+		p.pos++
+	}
+}
+
+func (p *Parser) advance() lexer.Token {
+	token := p.current()
+	p.pos++
+	return token
+}
+
+func (p *Parser) current() lexer.Token {
+	if p.pos >= len(p.tokens) {
+		return lexer.Token{Type: lexer.EOF}
+	}
+
+	return p.tokens[p.pos]
 }

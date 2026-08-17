@@ -26,7 +26,6 @@ func NewGenerator() *Generator {
 // addConst adds a numeric value to the constant pool
 // and returns its index.
 func (g *Generator) addConst(value float64) uint8 {
-	// Reuse an existing constant when possible.
 	for i, existing := range g.Consts {
 		if existing == value {
 			return uint8(i)
@@ -34,52 +33,34 @@ func (g *Generator) addConst(value float64) uint8 {
 	}
 
 	g.Consts = append(g.Consts, value)
-
 	return uint8(len(g.Consts) - 1)
 }
 
 // Generate converts a function AST into bytecode.
-func (g *Generator) Generate(
-	fn *ast.Function,
-) ([]uint8, []float64) {
-
-	// Reset generator so it can safely be reused.
+func (g *Generator) Generate(fn *ast.Function) ([]uint8, []float64) {
 	g.Vars = make(map[string]int)
 	g.Consts = make([]float64, 0)
 	g.Bytecode = make([]uint8, 0)
 
 	for _, statement := range fn.Body {
-
 		switch stmt := statement.(type) {
-
 		case *ast.LetStmt:
-
-			// Compile expression first.
 			g.emitExpr(stmt.Value)
 
-			// Allocate variable slot.
 			index, exists := g.Vars[stmt.Name]
-
 			if !exists {
 				index = len(g.Vars)
 				g.Vars[stmt.Name] = index
 			}
 
-			// Store result into local variable.
-			g.Bytecode = append(
-				g.Bytecode,
-				exec.OP_STORE_VAR,
-				uint8(index),
-			)
+			g.Bytecode = append(g.Bytecode, exec.OP_STORE_VAR, uint8(index))
 
 		case *ast.ReturnStmt:
-
 			g.emitExpr(stmt.Value)
+			g.Bytecode = append(g.Bytecode, exec.OP_RETURN)
 
-			g.Bytecode = append(
-				g.Bytecode,
-				exec.OP_RETURN,
-			)
+		default:
+			panic(fmt.Sprintf("unsupported statement type %T", stmt))
 		}
 	}
 
@@ -88,61 +69,37 @@ func (g *Generator) Generate(
 
 // emitExpr converts an expression into bytecode.
 func (g *Generator) emitExpr(expression ast.Expr) {
-
 	switch expr := expression.(type) {
-
 	case *ast.NumberLiteral:
-
 		constIndex := g.addConst(expr.Value)
-
-		g.Bytecode = append(
-			g.Bytecode,
-			exec.OP_LOAD_CONST,
-			constIndex,
-		)
+		g.Bytecode = append(g.Bytecode, exec.OP_LOAD_CONST, constIndex)
 
 	case *ast.Ident:
-
 		varIndex, exists := g.Vars[expr.Name]
-
 		if !exists {
-			panic(
-				fmt.Sprintf(
-					"undefined variable: %s",
-					expr.Name,
-				),
-			)
+			panic(fmt.Sprintf("undefined variable: %s", expr.Name))
 		}
 
-		g.Bytecode = append(
-			g.Bytecode,
-			exec.OP_LOAD_VAR,
-			uint8(varIndex),
-		)
+		g.Bytecode = append(g.Bytecode, exec.OP_LOAD_VAR, uint8(varIndex))
 
 	case *ast.BinaryExpr:
-
 		g.emitExpr(expr.Left)
 		g.emitExpr(expr.Right)
 
 		switch expr.Op {
-
 		case "+":
-			g.Bytecode = append(
-				g.Bytecode,
-				exec.OP_ADD,
-			)
-
+			g.Bytecode = append(g.Bytecode, exec.OP_ADD)
+		case "-":
+			g.Bytecode = append(g.Bytecode, exec.OP_SUB)
+		case "*":
+			g.Bytecode = append(g.Bytecode, exec.OP_MUL)
+		case "/":
+			g.Bytecode = append(g.Bytecode, exec.OP_DIV)
 		default:
-			panic(
-				fmt.Sprintf(
-					"unsupported operator: %s",
-					expr.Op,
-				),
-			)
-		// )
+			panic(fmt.Sprintf("unsupported operator: %s", expr.Op))
+		}
 
 	default:
-		panic("unsupported expression")
+		panic(fmt.Sprintf("unsupported expression type %T", expr))
 	}
 }
