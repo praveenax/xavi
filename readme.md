@@ -1,198 +1,171 @@
 # Xavi
 
-Xavi is an early-stage Go project for a small language and virtual machine. The repository already contains the main building blocks of a language toolchain:
+Xavi is a small Go-based language project with a working end-to-end path from `.xavi` source files to bytecode execution.
 
-- a compiler-facing package layout with lexer, parser, AST, and IR packages
-- a bytecode interpreter with a stack and local frame model
-- a lightweight agent runtime concept for repeated background execution
+Today the repository can:
 
-At the moment, the VM layer is the most concrete part of the codebase. The compiler side is still partial, with some packages acting as placeholders for future work.
+- tokenize indentation-based source files
+- parse imports, functions, statements, arithmetic, and function calls
+- load imported `.xavi` files recursively
+- compile AST nodes into bytecode
+- execute that bytecode in a stack-based virtual machine
+- call simple builtins such as `pt` and `ptln`
 
 ## Repository Layout
 
 ```text
 xavi/
-├── cmd/
-│   └── xavic/                # Reserved for a future CLI entrypoint
-├── compiler/
-│   ├── ast/                  # AST node types
-│   ├── bytecode/             # Placeholder
-│   ├── emitter/              # Placeholder
-│   ├── ir/                   # Intermediate representation types
-│   ├── lexer/                # Token and token-type definitions
-│   ├── parser/               # Partial parser implementation
-│   ├── sema/                 # Placeholder
-│   └── toon/                 # Placeholder
-├── examples/
-│   └── hello.xavi            # Currently empty
-├── vm/
-│   ├── agents/               # Minimal agent loop abstraction
-│   ├── builtin/              # Placeholder
-│   ├── exec/                 # Bytecode interpreter and opcodes
-│   ├── loader/               # Placeholder
-│   └── runtime/              # Stack and frame storage
-├── go.mod
-├── LICENSE
-└── main.go                   # Demo program using handwritten bytecode
+|-- cmd/
+|   `-- xavic/                # Reserved for a future dedicated CLI
+|-- compiler/
+|   |-- ast/                  # Program, statement, and expression nodes
+|   |-- bytecode/             # AST -> bytecode generator
+|   |-- emitter/              # Placeholder
+|   |-- ir/                   # Minimal IR type
+|   |-- lexer/                # Tokenizer with indent/dedent support
+|   |-- parser/               # Recursive-descent parser
+|   |-- sema/                 # Placeholder
+|   `-- toon/                 # Placeholder
+|-- docs/
+|   `-- architecture.md
+|-- examples/
+|   |-- hello.xavi            # Example entry program with imports
+|   |-- sum.xavi
+|   `-- operation/
+|       `-- mult.xavi
+|-- vm/
+|   |-- agents/               # Minimal background agent loop abstraction
+|   |-- builtin/              # Builtin function dispatch
+|   |-- exec/                 # Bytecode interpreter
+|   |-- loader/               # Source loading + import resolution
+|   |-- opcode/               # Opcode and builtin indexes
+|   `-- runtime/              # Stack and frame storage
+|-- go.mod
+|-- LICENSE
+|-- main.go                   # Current CLI entrypoint
+`-- readme.md
 ```
 
-## What Exists Today
+## Current Execution Flow
 
-### 1. Demo Entrypoint
+The current entrypoint in [`main.go`](./main.go) expects a Xavi source file:
 
-[`main.go`](./main.go) manually constructs bytecode for a tiny arithmetic program equivalent to:
+```bash
+go run . examples/hello.xavi
+```
+
+That flow is:
+
+1. `vm/loader` reads the entry file and resolves imports.
+2. `compiler/lexer` tokenizes the source.
+3. `compiler/parser` builds an AST program.
+4. `compiler/bytecode` compiles functions into VM bytecode.
+5. `vm/exec` runs the compiled `main` function.
+
+## Language Features Implemented Today
+
+### Top-Level Forms
+
+- `import "./file.xavi"`
+- `import name < "./file.xavi"` to import one named function
+- `fn main():`
+
+### Statements
+
+- `let name = expr`
+- `return expr`
+- expression statements such as builtin calls
+
+### Expressions
+
+- identifiers
+- number literals
+- string literals
+- binary arithmetic: `+`, `-`, `*`, `/`
+- grouped expressions with parentheses
+- function calls
+
+### Runtime Features
+
+- local variables stored in indexed frame slots
+- per-function constant pools
+- user-defined function calls
+- builtins `pt(...)` and `ptln(...)`
+
+## Example Program
+
+[`examples/hello.xavi`](./examples/hello.xavi) demonstrates:
+
+- recursive imports
+- nested function calls
+- arithmetic
+- printing through builtins
+
+Running it currently prints:
 
 ```text
-return 10 + 20
+Hello world20 hello new line
+Result: 30
 ```
 
-The program:
+The formatting is expected with the current builtins:
 
-- loads two numeric constants
-- stores them in local frame slots
-- reloads them
-- adds them
-- returns the result from the stack
+- `pt(...)` prints arguments without a trailing newline
+- `ptln(...)` prints arguments and then appends a newline
 
-This file is best read as a VM demonstration rather than a full compiler pipeline.
+## Package Status
 
-### 2. Virtual Machine
+### Implemented
 
-The interpreter in [`vm/exec/interpreter.go`](./vm/exec/interpreter.go) executes a byte slice instruction-by-instruction.
+- [`compiler/lexer/lexer.go`](./compiler/lexer/lexer.go): tokenization, keywords, strings, numbers, indentation tokens
+- [`compiler/parser/parser.go`](./compiler/parser/parser.go): program, import, function, block, statement, and expression parsing
+- [`compiler/ast/nodes.go`](./compiler/ast/nodes.go): program, statement, and expression node definitions
+- [`compiler/bytecode/gen.go`](./compiler/bytecode/gen.go): AST lowering to compiled functions
+- [`vm/loader/loader.go`](./vm/loader/loader.go): import-aware source loading
+- [`vm/exec/interpreter.go`](./vm/exec/interpreter.go): bytecode interpreter with function and builtin calls
+- [`vm/runtime`](./vm/runtime): stack and frame storage
+- [`vm/opcode/opcode.go`](./vm/opcode/opcode.go): opcode definitions and builtin indexes
+- [`vm/builtin/print.go`](./vm/builtin/print.go): console-print builtins
 
-Supported opcodes in [`vm/exec/opcodes.go`](./vm/exec/opcodes.go):
+### Partial Or Placeholder
 
-- `OP_LOAD_CONST`
-- `OP_LOAD_VAR`
-- `OP_STORE_VAR`
-- `OP_ADD`
-- `OP_SUB`
-- `OP_MUL`
-- `OP_DIV`
-- `OP_RETURN`
+- `cmd/xavic/` exists but does not yet provide a dedicated CLI binary
+- `compiler/ir/` defines a minimal instruction struct but is not wired into compilation
+- `compiler/emitter/`, `compiler/sema/`, and `compiler/toon/` are present but currently empty
+- `vm/agents/` contains a minimal repeated callback loop and is not integrated with the language pipeline
 
-Runtime support:
-
-- [`vm/runtime/stack.go`](./vm/runtime/stack.go) implements a simple LIFO stack over `[]interface{}`
-- [`vm/runtime/frame.go`](./vm/runtime/frame.go) stores locals in indexed slots
-
-Execution model:
-
-1. Read opcode from `BC`
-2. Advance instruction pointer
-3. Perform stack or frame operation
-4. Continue until `OP_RETURN` or end of bytecode
-
-The interpreter currently assumes numeric arithmetic with `float64` values for arithmetic operations.
-
-### 3. Compiler Skeleton
-
-The `compiler` tree outlines the intended front-end pipeline:
-
-- [`compiler/lexer/lexer.go`](./compiler/lexer/lexer.go) defines token types and token metadata
-- [`compiler/ast/nodes.go`](./compiler/ast/nodes.go) defines core AST structures like `Function`, `Param`, `Return`, and `BinaryOp`
-- [`compiler/ir/ir.go`](./compiler/ir/ir.go) defines a minimal IR instruction type
-- [`compiler/parser/parser.go`](./compiler/parser/parser.go) begins a function parser
-
-The parser currently expects a function syntax shaped like:
-
-```text
-fn <name>(<params>) -> <returnType>
-```
-
-It then attempts to parse a block body, but helper methods such as `expect`, `parseParams`, and `parseBlock` are not implemented yet.
-
-### 4. Agent Runtime Concept
-
-[`vm/agents/agents.go`](./vm/agents/agents.go) defines:
-
-- an `Agent` with a `Name`
-- a `Run` callback
-- a `Start()` method that repeatedly executes `Run` in a goroutine every 10ms
-
-This is a minimal building block for evented or autonomous runtime behavior. It is not yet integrated with the compiler or interpreter.
-
-## Current Project Status
-
-This repository is best understood as a prototype / scaffold.
-
-Implemented:
-
-- bytecode execution for simple arithmetic
-- local variable storage via frame slots
-- basic AST and IR type definitions
-- token type definitions for a higher-level language design
-
-Incomplete or placeholder areas:
-
-- actual lexing logic
-- parser helper methods and block parsing
-- semantic analysis
-- bytecode generation from AST/IR
-- CLI compiler command under `cmd/xavic`
-- builtins, loader, and example programs
-
-## Build And Run
+## Build And Verification
 
 From the project root:
 
 ```bash
-go run .
-```
-
-Expected behavior from the current demo:
-
-```text
-Result: 30
-```
-
-To run package checks:
-
-```bash
 go test ./...
+go run . examples/hello.xavi
 ```
 
-## Known Limitations
+As of August 17, 2026:
 
-As of August 17, 2026, the repository does not build cleanly as a full project because `compiler/parser/parser.go` references methods that do not exist yet:
+- `go test ./...` succeeds
+- there are currently no package test files, so the command only verifies that the code builds cleanly
 
-- `expect`
-- `parseParams`
-- `parseBlock`
+## Current Limitations
 
-That means:
+- no semantic analysis pass yet
+- no type checking
+- parser errors still panic instead of returning structured diagnostics
+- bytecode generation panics on unsupported or undefined references
+- interpreter arithmetic assumes `float64` values
+- runtime containers do not perform defensive bounds checks
+- imports merge functions by name only and do not provide module namespaces
+- builtin support is limited to printing
 
-- `go test ./...` fails at compile time in the parser package
-- the current entrypoint is a handwritten VM example rather than the output of a compiler
+## Suggested Next Steps
 
-## Suggested Roadmap
-
-### Near-Term
-
-1. Implement parser helpers (`expect`, token navigation, parameter parsing, block parsing).
-2. Add real lexer logic to turn source text into tokens.
-3. Define literal and identifier AST nodes so expressions can be represented cleanly.
-4. Add a bytecode emitter from AST or IR to VM opcodes.
-5. Populate `examples/hello.xavi` with a minimal source program.
-
-### Mid-Term
-
-1. Add a CLI under `cmd/xavic` for compile/run workflows.
-2. Introduce semantic checks for symbols, return types, and arity.
-3. Add built-in functions and loader support.
-4. Define how `agent`, `on`, and `event` syntax should lower into runtime constructs.
-
-## Design Notes
-
-The token set suggests the language may be aiming for:
-
-- function declarations with explicit return types
-- records / structured data
-- variable bindings
-- agent/event-oriented constructs
-- indentation-aware parsing (`INDENT` / `DEDENT`)
-
-That design direction is not fully implemented yet, but the package layout already reflects it.
+1. Add parser, loader, bytecode, and VM tests around the example workflows.
+2. Introduce structured diagnostics instead of `panic`-driven failures.
+3. Add semantic analysis for symbol resolution, duplicate definitions, and type validation.
+4. Decide whether `compiler/ir` will remain a real intermediate stage or be removed.
+5. Build a dedicated `cmd/xavic` CLI for run/build/check commands.
 
 ## Additional Documentation
 
