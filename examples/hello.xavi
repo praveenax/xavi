@@ -1,4 +1,9 @@
+fn sum(x,y):
+    return x + y
+
+
+
 fn main():
     let x = 10
-    let y = 20
-    return x + y
+    let y = sum(14,6)
+    return sum(x,y)

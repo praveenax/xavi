@@ -75,3 +75,12 @@ type BinaryExpr struct {
 
 func (e *BinaryExpr) Pos() int  { return e.position }
 func (e *BinaryExpr) exprNode() {}
+
+type CallExpr struct {
+	Callee   string
+	Args     []Expr
+	position int
+}
+
+func (e *CallExpr) Pos() int  { return e.position }
+func (e *CallExpr) exprNode() {}

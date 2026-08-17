@@ -155,7 +155,7 @@ func (p *Parser) parseAddSub() ast.Expr {
 }
 
 func (p *Parser) parseMulDiv() ast.Expr {
-	left := p.parsePrimary()
+	left := p.parseCall()
 
 	for {
 		op := p.current().Type
@@ -171,6 +171,48 @@ func (p *Parser) parseMulDiv() ast.Expr {
 			Right: right,
 		}
 	}
+}
+
+func (p *Parser) parseCall() ast.Expr {
+	expr := p.parsePrimary()
+
+	for p.current().Type == lexer.LPAREN {
+		ident, ok := expr.(*ast.Ident)
+		if !ok {
+			panic(fmt.Sprintf(
+				"unsupported call target at line %d, col %d",
+				p.current().Line,
+				p.current().Col,
+			))
+		}
+
+		p.expect(lexer.LPAREN)
+		args := p.parseArgs()
+		p.expect(lexer.RPAREN)
+
+		expr = &ast.CallExpr{
+			Callee: ident.Name,
+			Args:   args,
+		}
+	}
+
+	return expr
+}
+
+func (p *Parser) parseArgs() []ast.Expr {
+	args := make([]ast.Expr, 0)
+	if p.current().Type == lexer.RPAREN {
+		return args
+	}
+
+	for {
+		args = append(args, p.parseExpr())
+		if !p.match(lexer.COMMA) {
+			break
+		}
+	}
+
+	return args
 }
 
 func (p *Parser) parsePrimary() ast.Expr {

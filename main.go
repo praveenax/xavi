@@ -49,25 +49,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	// For now, execute the first function.
-	fn := program.Functions[0]
-
 	// 3. Generate Xavi bytecode
 	generator := bytecode.NewGenerator()
+	compiledProgram, err := generator.GenerateProgram(program)
+	if err != nil {
+		fmt.Println("Error generating bytecode:", err)
+		os.Exit(1)
+	}
 
-	bc, constants := generator.Generate(fn)
+	// 4. Execute bytecode using Xavi VM.
+	vm := exec.NewInterpreter(compiledProgram)
 
-	// 4. Allocate enough local variable slots.
-	frameSize := len(generator.Vars)
-
-	// 5. Execute bytecode using Xavi VM.
-	vm := exec.NewInterpreter(
-		bc,
-		constants,
-		frameSize,
-	)
-
-	result := vm.Run()
+	result := vm.Run("main")
 
 	fmt.Println("Result:", result)
 }
