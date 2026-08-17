@@ -2,211 +2,308 @@
 
 ## Overview
 
-Xavi is structured like a language implementation with three broad layers:
+Xavi now has a working source-to-execution pipeline:
 
-1. source language front-end under `compiler/`
-2. execution runtime under `vm/`
-3. application or tooling entrypoints under `main.go` and `cmd/`
+1. load a `.xavi` entry file
+2. resolve imports
+3. tokenize source text
+4. parse an AST
+5. compile AST functions into bytecode
+6. execute bytecode in the VM
 
-Today, only part of that end-to-end story is implemented. The architecture is still useful because it shows the intended separation of concerns.
+The architecture is still small and prototype-oriented, but it is no longer just a handwritten bytecode demo. The main runtime path is implemented and exercised by the example programs under `examples/`.
+
+## End-To-End Flow
+
+### 1. Entrypoint
+
+[`main.go`](../main.go) acts as the current CLI entrypoint.
+
+Responsibilities:
+
+- require an input path such as `examples/hello.xavi`
+- load the program graph through `vm/loader`
+- compile it through `compiler/bytecode`
+- execute `main` through `vm/exec`
+
+If no argument is provided, the process exits with:
+
+```text
+Usage: go run . <file.xavi>
+```
+
+### 2. Loading And Import Resolution
+
+[`vm/loader/loader.go`](../vm/loader/loader.go) is the bridge from source files into the compiler pipeline.
+
+It currently:
+
+- resolves the entry path to an absolute path
+- reads source from disk
+- tokenizes and parses each file
+- follows imports relative to the importing file
+- prevents repeated loading with a `visited` map
+- merges imported functions ahead of the current file's functions
+
+Supported import shapes:
+
+- `import "./sum.xavi"`
+- `import sum < "./sum.xavi"`
+
+The named-import form selects a single function by name from the imported file. The unnamed form includes all imported functions.
+
+### 3. Lexing
+
+[`compiler/lexer/lexer.go`](../compiler/lexer/lexer.go) contains a real tokenizer rather than just token definitions.
+
+Implemented token categories include:
+
+- keywords: `fn`, `import`, `return`, `let`, `record`, `agent`, `on`, `event`
+- punctuation/operators: `:`, `<`, `->`, `(`, `)`, `,`, `=`, `+`, `-`, `*`, `/`
+- literals: identifiers, numbers, strings
+- layout tokens: `INDENT`, `DEDENT`, `NEWLINE`
+
+Current lexer behavior:
+
+- normalizes CRLF to LF
+- emits explicit newline tokens
+- tracks indentation width across lines
+- treats tabs as width 4 for indentation counting
+- parses decimal numbers into token text later converted by the parser
+
+This makes the language block-structured and indentation-sensitive.
+
+### 4. Parsing
+
+[`compiler/parser/parser.go`](../compiler/parser/parser.go) is a recursive-descent parser over the lexer token stream.
+
+The parser currently builds:
+
+- `ast.Program`
+- `ast.Import`
+- `ast.Function`
+- `ast.LetStmt`
+- `ast.ReturnStmt`
+- `ast.ExprStmt`
+- `ast.Ident`
+- `ast.NumberLiteral`
+- `ast.StringLiteral`
+- `ast.BinaryExpr`
+- `ast.CallExpr`
+
+Grammar features supported in practice:
+
+- top-level `import` and `fn`
+- optional parameter type annotations like `x: Number`
+- optional function return type syntax `-> Type`
+- colon-plus-indented blocks
+- arithmetic precedence for `+`, `-`, `*`, `/`
+- parenthesized expressions
+- function and builtin calls
+
+Error handling is still panic-based. Unsupported top-level forms, invalid call targets, and unexpected tokens currently fail fast instead of returning structured diagnostics.
 
 ## Compiler Layer
 
-### `compiler/lexer`
-
-[`compiler/lexer/lexer.go`](../compiler/lexer/lexer.go) defines token categories but does not yet include a lexer implementation.
-
-Interesting tokens:
-
-- keywords: `FN`, `RECORD`, `RETURN`, `LET`, `AGENT`, `ON`, `EVENT`
-- punctuation: `COLON`, `ARROW`, `LPAREN`, `RPAREN`
-- layout-aware tokens: `INDENT`, `DEDENT`, `NEWLINE`
-
-This suggests the language is intended to support indentation-sensitive parsing, similar to Python-style blocks.
-
 ### `compiler/ast`
 
-[`compiler/ast/nodes.go`](../compiler/ast/nodes.go) currently defines:
+[`compiler/ast/nodes.go`](../compiler/ast/nodes.go) defines the current tree shape.
 
-- `Node`
-- `Function`
-- `Param`
-- `Return`
-- `BinaryOp`
+Key design points:
 
-Observations:
+- `Node` exposes `Pos() int`
+- statements and expressions are modeled through `Stmt` and `Expr` marker interfaces
+- `Program` separates `Imports` from `Functions`
+- function bodies are stored as `[]Stmt`
 
-- `Node` requires a `Pos() int` method, but the concrete structs shown in this file do not implement it yet.
-- expression coverage is still incomplete: there are no dedicated number, string, identifier, or call nodes.
-- `Function.Body` is represented as `[]Node`, which is a reasonable base for a statement list.
+Compared with earlier revisions, the AST is now substantially more complete:
 
-### `compiler/parser`
+- position methods exist on concrete nodes
+- identifiers, literals, binary expressions, and calls are represented explicitly
+- import declarations are first-class nodes
 
-[`compiler/parser/parser.go`](../compiler/parser/parser.go) is a partial recursive-descent parser.
+### `compiler/bytecode`
 
-Implemented flow:
+[`compiler/bytecode/gen.go`](../compiler/bytecode/gen.go) is the main lowering stage used by the project today.
 
-1. expect `fn`
-2. read function name
-3. parse parameter list
-4. read return arrow
-5. read return type
-6. parse block body
-7. return an AST function node
+Core types:
 
-Missing pieces:
+- `CompiledProgram`
+- `CompiledFunction`
+- `Generator`
 
-- token lookahead utilities
-- `expect(...)`
-- `parseParams()`
-- `parseBlock()`
-- error handling and recovery
+Compilation behavior:
 
-Because of those missing methods, the parser package does not currently compile.
+- indexes functions by name before code generation
+- resets local state per function
+- assigns parameter slots first
+- allocates local slots on first `let`
+- deduplicates constants within a function
+- emits bytecode for expressions and statements
 
-### `compiler/ir`
+Statement lowering:
 
-[`compiler/ir/ir.go`](../compiler/ir/ir.go) defines a minimal instruction shape:
+- `let` evaluates the expression and stores it in a local slot
+- `return` evaluates and emits `RETURN`
+- bare expression statements evaluate and emit `POP`
 
-```go
-type Instr struct {
-    Op   string
-    Arg1 string
-    Arg2 string
-}
-```
+Expression lowering:
 
-This can serve as a transitional layer between AST and VM bytecode, but it is not connected to the rest of the pipeline yet.
+- literals load from the function constant pool
+- identifiers load from frame slots
+- arithmetic maps to VM opcodes
+- calls dispatch either to user-defined functions or builtin indexes
+
+This package is now the real compiler backend for the repository. By contrast, [`compiler/ir/ir.go`](../compiler/ir/ir.go) remains a disconnected minimal type and is not part of the active pipeline.
 
 ### Placeholder Compiler Packages
 
-These directories currently exist without implementation files:
+The following directories still exist without active implementation files:
 
-- `compiler/bytecode`
 - `compiler/emitter`
 - `compiler/sema`
 - `compiler/toon`
 
-Probable roles:
-
-- `bytecode`: VM-oriented compiled output structures
-- `emitter`: lowering AST or IR into bytecode
-- `sema`: type checking and symbol validation
-- `toon`: likely experimental or domain-specific compilation work
+These appear reserved for future compilation stages or experiments, but they do not participate in the current build.
 
 ## VM Layer
 
+### `vm/opcode`
+
+[`vm/opcode/opcode.go`](../vm/opcode/opcode.go) defines the interpreter instruction set:
+
+- `LOAD_CONST`
+- `LOAD_VAR`
+- `STORE_VAR`
+- `ADD`
+- `SUB`
+- `MUL`
+- `DIV`
+- `CALL`
+- `CALL_BUILTIN`
+- `POP`
+- `RETURN`
+
+It also maps builtin names to builtin indexes:
+
+- `pt`
+- `ptln`
+
 ### `vm/runtime`
 
-This package provides the mutable runtime containers used by the interpreter.
+[`vm/runtime/stack.go`](../vm/runtime/stack.go) and [`vm/runtime/frame.go`](../vm/runtime/frame.go) provide the mutable runtime containers.
 
 `Stack`:
 
 - backed by `[]interface{}`
 - supports `Push` and `Pop`
-- returns `nil` on underflow rather than panicking
+- returns `nil` on underflow
 
 `Frame`:
 
 - backed by `[]interface{}`
-- represents local variable slots
-- supports indexed `Store` and `Load`
+- stores local values by slot index
+- is sized from the compiled function's `FrameSize`
 
-The runtime keeps the model intentionally simple, which is a good fit for a prototype interpreter.
+The model is intentionally simple and works well for the current single-frame-per-call execution design.
 
 ### `vm/exec`
 
-This is the core execution engine.
+[`vm/exec/interpreter.go`](../vm/exec/interpreter.go) executes compiled bytecode function-by-function.
 
-Opcode set:
+Interpreter behavior:
 
-- `OP_LOAD_CONST`
-- `OP_LOAD_VAR`
-- `OP_STORE_VAR`
-- `OP_ADD`
-- `OP_SUB`
-- `OP_MUL`
-- `OP_DIV`
-- `OP_RETURN`
+- resolves the entry function by name from `CompiledProgram.FunctionIndex`
+- creates a new frame for each call
+- loads incoming arguments into frame slots
+- uses a fresh operand stack per function invocation
+- dispatches opcodes in a single loop
 
-Interpreter responsibilities:
+Implemented execution features:
 
-- hold bytecode and instruction pointer
-- own the operand stack
-- own the constant pool
-- own the current frame
-- dispatch instructions in a loop
+- arithmetic on `float64`
+- local loads and stores
+- user-defined function calls
+- builtin calls through `vm/builtin`
+- returning the top value from the stack
 
-Data assumptions:
+There is no structured runtime error system yet. Invalid indexes, wrong value shapes, or unsupported states tend to surface as panics or raw Go runtime failures.
 
-- arithmetic opcodes cast stack operands to `float64`
-- local variables are stored as `interface{}`
-- bytecode operands are single-byte indexes
+### `vm/builtin`
 
-Those choices keep the implementation small, but they also create natural next steps:
+[`vm/builtin/print.go`](../vm/builtin/print.go) currently exposes two builtins:
 
-- bounds checks for locals and constant indexes
-- structured runtime errors
-- richer value tagging or typed value containers
-- support for calls and multiple frames
+- `pt`: print arguments without a newline
+- `ptln`: print arguments and then add a newline
+
+Both builtins accept variadic `interface{}` values and write directly to standard output.
 
 ### `vm/agents`
 
-The agent package is separate from the interpreter and models repeated background work.
+[`vm/agents/agents.go`](../vm/agents/agents.go) remains separate from the source language and VM execution flow.
 
-Current behavior:
+It currently provides:
 
-- `Start()` launches a goroutine
-- the goroutine runs forever
-- `Run()` executes every 10 milliseconds
+- an `Agent` struct with `Name` and `Run`
+- a `Start()` method that runs `Run` repeatedly in a goroutine every 10 milliseconds
 
-What is missing:
+This is still a runtime concept stub rather than a language feature wired into parsing, code generation, or execution.
 
-- cancellation / stop control
-- error handling
-- scheduler integration
-- event source wiring
+## Current Example Path
 
-## Entrypoints
+[`examples/hello.xavi`](../examples/hello.xavi) is the best reference for the implemented system.
 
-### `main.go`
+It demonstrates:
 
-`main.go` currently bypasses the compiler and feeds handcrafted bytecode directly into the VM.
+- named imports from sibling files
+- nested user-defined function calls
+- builtin printing
+- arithmetic evaluation
 
-This is useful because it validates the interpreter model independently from the unfinished compiler. It also serves as a concrete example of the expected low-level instruction format.
+Supporting files:
 
-### `cmd/xavic`
+- [`examples/sum.xavi`](../examples/sum.xavi)
+- [`examples/operation/mult.xavi`](../examples/operation/mult.xavi)
 
-The `cmd/xavic` directory exists but is empty. This is the natural location for a future CLI such as:
+Running:
 
-- `xavic run examples/hello.xavi`
-- `xavic build file.xavi`
-- `xavic ast file.xavi`
-- `xavic disasm file.xavi`
+```bash
+go run . examples/hello.xavi
+```
 
-## Gaps In The Current End-To-End Flow
+Currently produces:
 
-The intended language pipeline appears to be:
+```text
+Hello world20 hello new line
+Result: 30
+```
 
-1. source text
-2. lexer tokens
-3. AST
-4. IR or direct lowering
-5. bytecode
-6. VM execution
+## Build Status
 
-Right now, the implemented path is effectively:
+As of August 17, 2026:
 
-1. handcrafted bytecode
-2. VM execution
+- `go test ./...` succeeds
+- there are no Go test files yet, so the build status currently reflects compile-time validation rather than behavioral test coverage
 
-That means the documentation and future planning should treat the compiler and runtime as partially decoupled tracks rather than a complete single feature.
+This is an important change from earlier repository states where parser incompleteness prevented a clean build.
 
-## Recommended Next Engineering Steps
+## Architectural Gaps
 
-1. Make the AST compile cleanly by implementing `Pos()` on node types or relaxing the `Node` interface temporarily.
-2. Complete parser support for function signatures and blocks.
-3. Add a real lexer that emits the token types already defined.
-4. Decide whether IR is required for v1 or whether AST can lower directly to bytecode.
-5. Add tests around `vm/exec`, especially arithmetic and local variable behavior.
-6. Create one real `.xavi` example and wire it into an executable CLI or test.
+Even with the active end-to-end path, several architectural gaps remain:
+
+- no semantic analysis stage
+- no type checker despite typed syntax hooks in the parser
+- no namespace or module object model for imports
+- no explicit diagnostic/reporting abstraction
+- no control flow beyond straight-line statements and function calls
+- no records, agents, events, or `on` handlers in the executable pipeline yet
+- no dedicated CLI under `cmd/xavic`
+- no tests around lexer, parser, loader, bytecode generation, or VM execution
+
+## Likely Next Steps
+
+1. Add tests that lock down the current example-driven workflow.
+2. Replace parser and generator panics with structured errors.
+3. Introduce semantic analysis for symbol checks and duplicate definition handling.
+4. Decide whether `compiler/ir` should become a real stage or be removed.
+5. Expand the bytecode and VM model before adding richer language syntax.
